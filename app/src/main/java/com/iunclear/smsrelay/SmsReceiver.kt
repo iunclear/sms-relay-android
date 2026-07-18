@@ -11,7 +11,8 @@ import kotlinx.coroutines.launch
 
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
+        val isDefaultSmsDelivery = intent.action == Telephony.Sms.Intents.SMS_DELIVER_ACTION
+        if (!isDefaultSmsDelivery && intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
         if (messages.isEmpty()) return
 
@@ -23,6 +24,17 @@ class SmsReceiver : BroadcastReceiver() {
 
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
+                if (isDefaultSmsDelivery) {
+                    val stored = SystemSmsStore(context.applicationContext)
+                        .storeIncoming(sender, content, receivedAt)
+                    pendingResult.setResultCode(
+                        if (stored) {
+                            Telephony.Sms.Intents.RESULT_SMS_HANDLED
+                        } else {
+                            Telephony.Sms.Intents.RESULT_SMS_GENERIC_ERROR
+                        }
+                    )
+                }
                 MessageRepository(context.applicationContext).receive(sender, content, receivedAt)
             } finally {
                 pendingResult.finish()

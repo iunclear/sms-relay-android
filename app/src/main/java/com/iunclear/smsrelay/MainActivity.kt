@@ -1,10 +1,14 @@
 package com.iunclear.smsrelay
 
 import android.Manifest
+import android.app.role.RoleManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Telephony
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,14 +47,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { SmsRelayApp() }
+        val recipient = intent?.data?.schemeSpecificPart.orEmpty()
+        val content = intent?.getStringExtra("sms_body").orEmpty()
+        setContent {
+            if (recipient.isBlank()) SmsRelayApp() else SendMessageApp(recipient, content)
+        }
     }
 }
 
@@ -64,6 +74,7 @@ private fun SmsRelayApp() {
     val scope = rememberCoroutineScope()
     var deviceName by remember { mutableStateOf(settings.deviceName) }
     var endpoint by remember { mutableStateOf(settings.endpoint) }
+    var isDefaultSmsApp by remember { mutableStateOf(context.isDefaultSmsApp()) }
 
     LaunchedEffect(settings.deviceName, settings.endpoint) {
         deviceName = settings.deviceName
@@ -77,6 +88,22 @@ private fun SmsRelayApp() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) saveSettings(true)
+    }
+    val defaultSmsRole = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        isDefaultSmsApp = context.isDefaultSmsApp()
+        if (isDefaultSmsApp) {
+            if (ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECEIVE_SMS
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                saveSettings(true)
+            } else {
+                smsPermission.launch(Manifest.permission.RECEIVE_SMS)
+            }
+        }
     }
 
     MaterialTheme {
@@ -116,6 +143,25 @@ private fun SmsRelayApp() {
                             }
                         }
                     )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("验证码接收模式", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (isDefaultSmsApp) {
+                            "默认短信应用已启用：新短信会写入系统收件箱后转发。"
+                        } else {
+                            "普通监听模式：部分验证码可能被系统定向交给其所属应用。"
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    if (!isDefaultSmsApp) {
+                        Button(
+                            onClick = {
+                                context.defaultSmsRoleIntent()?.let(defaultSmsRole::launch)
+                            }
+                        ) { Text("设为默认短信应用") }
+                    }
                 }
                 OutlinedTextField(
                     value = deviceName,
@@ -213,4 +259,71 @@ private fun MessageRow(message: RelayMessage) {
             Text(message.lastError, style = MaterialTheme.typography.labelSmall, color = statusColor)
         }
     }
+}
+
+@Composable
+private fun SendMessageApp(initialRecipient: String, initialContent: String) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var recipient by remember { mutableStateOf(initialRecipient) }
+    var content by remember { mutableStateOf(initialContent) }
+    var status by remember { mutableStateOf<String?>(null) }
+
+    MaterialTheme {
+        Surface(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text("发送短信", style = MaterialTheme.typography.headlineSmall)
+                OutlinedTextField(
+                    value = recipient,
+                    onValueChange = { recipient = it },
+                    label = { Text("收件人号码") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    label = { Text("短信内容") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val result = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    SmsSender(context.applicationContext).send(recipient, content)
+                                }
+                            }
+                            status = result.fold(
+                                onSuccess = { "已发送" },
+                                onFailure = { it.message ?: "发送失败" }
+                            )
+                        }
+                    }
+                ) { Text("发送") }
+                status?.let { Text(it) }
+            }
+        }
+    }
+}
+
+private fun Context.isDefaultSmsApp(): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_SMS) == true
+} else {
+    Telephony.Sms.getDefaultSmsPackage(this) == packageName
+}
+
+private fun Context.defaultSmsRoleIntent(): Intent? = when {
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+        getSystemService(RoleManager::class.java)
+            ?.takeIf { it.isRoleAvailable(RoleManager.ROLE_SMS) && !it.isRoleHeld(RoleManager.ROLE_SMS) }
+            ?.createRequestRoleIntent(RoleManager.ROLE_SMS)
+    }
+    else -> Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT)
+        .putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, packageName)
 }
