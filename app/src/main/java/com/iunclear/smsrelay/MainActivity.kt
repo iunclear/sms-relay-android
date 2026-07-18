@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -139,7 +140,17 @@ private fun SmsRelayApp() {
                     modifier = Modifier.widthIn(min = 128.dp)
                 ) { Text("测试推送") }
 
-                Text("最近发送记录", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("最近发送记录", style = MaterialTheme.typography.titleMedium)
+                    TextButton(
+                        enabled = messages.isNotEmpty(),
+                        onClick = { scope.launch { repository.clearHistory() } }
+                    ) { Text("清除") }
+                }
                 if (messages.isEmpty()) {
                     Text("暂无记录", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {

@@ -36,6 +36,8 @@ class MessageRepository(context: Context) {
 
     val recent: Flow<List<RelayMessage>> = dao.recent()
 
+    suspend fun clearHistory() = dao.clear()
+
     suspend fun receive(sender: String, content: String, receivedAt: Long) {
         val settings = preferences.settings.first()
         if (!settings.enabled) return

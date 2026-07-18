@@ -37,6 +37,9 @@ interface MessageDao {
 
     @Query("SELECT * FROM relay_messages ORDER BY receivedAt DESC LIMIT 30")
     fun recent(): Flow<List<RelayMessage>>
+
+    @Query("DELETE FROM relay_messages")
+    suspend fun clear()
 }
 
 @Database(entities = [RelayMessage::class], version = 1, exportSchema = false)
