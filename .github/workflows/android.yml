@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build and Release Android APK
 
 on:
   push:
@@ -8,7 +8,10 @@ on:
   workflow_dispatch:
 
 env:
-  VERSION_NAME: 1.0.0
+  VERSION_NAME: 1.0.1
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -22,11 +25,25 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build APKs
         run: ./gradlew assembleDebug assembleRelease
+      - name: Prepare release files
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/SmsRelay-v${VERSION_NAME}-debug.apk"
+          cp app/build/outputs/apk/release/app-release.apk "dist/SmsRelay-v${VERSION_NAME}-optimized.apk"
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
           name: SmsRelay-v${{ env.VERSION_NAME }}-apks
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+          path: dist/*.apk
           if-no-files-found: error
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${VERSION_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/*.apk --clobber
+          else
+            gh release create "$tag" dist/*.apk --title "SmsRelay $tag" --generate-notes
+          fi
