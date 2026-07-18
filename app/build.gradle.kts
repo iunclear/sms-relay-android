@@ -24,6 +24,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            // This is an installable optimized build for testing; production signing belongs in CI secrets.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
 }
 
 dependencies {
@@ -35,7 +48,6 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-    debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

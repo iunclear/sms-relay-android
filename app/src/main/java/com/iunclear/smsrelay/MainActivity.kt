@@ -1,8 +1,11 @@
 package com.iunclear.smsrelay
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -139,6 +142,14 @@ private fun SmsRelayApp() {
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
                     modifier = Modifier.widthIn(min = 128.dp)
                 ) { Text("测试推送") }
+                TextButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                .setData(Uri.parse("package:${context.packageName}"))
+                        )
+                    }
+                ) { Text("后台电池设置") }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),

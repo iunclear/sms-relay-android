@@ -20,11 +20,13 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
-      - name: Upload APK
+      - name: Build APKs
+        run: ./gradlew assembleDebug assembleRelease
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: SmsRelay-v${{ env.VERSION_NAME }}-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: SmsRelay-v${{ env.VERSION_NAME }}-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error

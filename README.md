@@ -32,4 +32,10 @@
 ./gradlew assembleDebug
 ```
 
-APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。推送到 `main` 后，GitHub Actions 会自动编译并上传名为 `SmsRelay-v1.0.0-debug-apk` 的构建产物。
+APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。也可使用 R8 和资源压缩构建安装型优化包：
+
+```sh
+./gradlew assembleRelease
+```
+
+优化包位于 `app/build/outputs/apk/release/app-release.apk`，当前使用 Debug 签名便于安装调试；正式发布应在 CI 配置独立签名密钥。首页的“后台电池设置”会打开系统设置，可将应用设为不受限制的后台运行。推送到 `main` 后，GitHub Actions 会自动上传调试包与优化包。
