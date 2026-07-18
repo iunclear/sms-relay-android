@@ -108,18 +108,26 @@ class MessageRepository(context: Context) {
             .put("sender", message.sender)
             .put("content", message.content)
             .put("receivedAt", Instant.ofEpochMilli(message.receivedAt).toString())
-            .toString()
+        if (isWeComRobotWebhook(url)) {
+            payload
+                .put("msgtype", "text")
+                .put("text", JSONObject().put("content", weComText(message, settings)))
+        }
         val request = Request.Builder()
             .url(url)
-            .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+            .post(payload.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
         try {
             client.newCall(request).execute().use { response ->
+                val responseBody = response.body?.string().orEmpty()
                 when {
-                    response.isSuccessful -> SendResult.Success
-                    response.code in 400..499 -> SendResult.Failure("服务器返回 HTTP ${response.code}")
-                    else -> SendResult.Retry("服务器返回 HTTP ${response.code}")
+                    !response.isSuccessful && response.code in 400..499 ->
+                        SendResult.Failure("服务器返回 HTTP ${response.code}")
+                    !response.isSuccessful -> SendResult.Retry("服务器返回 HTTP ${response.code}")
+                    hasBusinessFailure(responseBody) ->
+                        SendResult.Failure(weComError(responseBody))
+                    else -> SendResult.Success
                 }
             }
         } catch (exception: Exception) {
@@ -145,8 +153,34 @@ class MessageRepository(context: Context) {
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
+    private fun isWeComRobotWebhook(url: okhttp3.HttpUrl): Boolean =
+        url.host == WE_COM_HOST && url.encodedPath == WE_COM_WEBHOOK_PATH
+
+    private fun weComText(message: RelayMessage, settings: RelaySettings): String = buildString {
+        append("SmsRelay")
+        append("\n设备：").append(settings.deviceName)
+        append("\n发送者：").append(message.sender)
+        append("\n内容：").append(message.content)
+        append("\n时间：").append(Instant.ofEpochMilli(message.receivedAt))
+    }.take(2_000)
+
+    private fun hasBusinessFailure(responseBody: String): Boolean = try {
+        JSONObject(responseBody).optInt("errcode", 0) != 0
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun weComError(responseBody: String): String = try {
+        val response = JSONObject(responseBody)
+        "推送服务返回 ${response.optInt("errcode")}: ${response.optString("errmsg", "请求失败")}".take(240)
+    } catch (_: Exception) {
+        "推送服务拒绝请求"
+    }
+
     companion object {
         private const val MAX_RETRY_ATTEMPTS = 8
+        private const val WE_COM_HOST = "qyapi.weixin.qq.com"
+        private const val WE_COM_WEBHOOK_PATH = "/cgi-bin/webhook/send"
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }
