@@ -5,6 +5,18 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val stableSigningValues = listOf(
+    System.getenv("SMSRELAY_KEYSTORE_FILE"),
+    System.getenv("SMSRELAY_KEYSTORE_PASSWORD"),
+    System.getenv("SMSRELAY_KEY_ALIAS"),
+    System.getenv("SMSRELAY_KEY_PASSWORD")
+)
+val hasStableSigning = stableSigningValues.all { !it.isNullOrBlank() }
+
+if (System.getenv("SMSRELAY_REQUIRE_RELEASE_SIGNING") == "true" && !hasStableSigning) {
+    error("Stable release signing credentials are required for this build.")
+}
+
 android {
     namespace = "com.iunclear.smsrelay"
     compileSdk = 35
@@ -13,8 +25,8 @@ android {
         applicationId = "com.iunclear.smsrelay"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.1.0"
+        versionCode = 4
+        versionName = "1.1.1"
     }
 
     buildFeatures { compose = true }
@@ -25,7 +37,21 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 
+    signingConfigs {
+        create("stable") {
+            if (hasStableSigning) {
+                storeFile = rootProject.file(System.getenv("SMSRELAY_KEYSTORE_FILE"))
+                storePassword = System.getenv("SMSRELAY_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("SMSRELAY_KEY_ALIAS")
+                keyPassword = System.getenv("SMSRELAY_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        getByName("debug") {
+            if (hasStableSigning) signingConfig = signingConfigs.getByName("stable")
+        }
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -33,8 +59,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // This is an installable optimized build for testing; production signing belongs in CI secrets.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasStableSigning) {
+                signingConfigs.getByName("stable")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

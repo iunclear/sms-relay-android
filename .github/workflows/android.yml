@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  VERSION_NAME: 1.1.0
+  VERSION_NAME: 1.1.1
 
 permissions:
   contents: write
@@ -23,7 +23,29 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare stable signing key
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/smsrelay-release.jks"
+          chmod 600 "$RUNNER_TEMP/smsrelay-release.jks"
+          {
+            echo "SMSRELAY_KEYSTORE_FILE=$RUNNER_TEMP/smsrelay-release.jks"
+            echo "SMSRELAY_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+            echo "SMSRELAY_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+            echo "SMSRELAY_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
       - name: Build APKs
+        env:
+          SMSRELAY_REQUIRE_RELEASE_SIGNING: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: ./gradlew assembleDebug assembleRelease
       - name: Prepare release files
         run: |
