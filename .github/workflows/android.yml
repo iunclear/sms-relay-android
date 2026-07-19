@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  VERSION_NAME: 1.1.1
+  VERSION_NAME: 1.1.2
 
 permissions:
   contents: write
