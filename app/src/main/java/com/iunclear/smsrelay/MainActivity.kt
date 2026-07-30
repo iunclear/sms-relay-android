@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
@@ -35,6 +36,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.lightColorScheme
@@ -113,11 +116,15 @@ private fun SmsRelayApp() {
     val context = LocalContext.current
     val repository = remember { MessageRepository(context.applicationContext) }
     val preferences = remember { AppPreferences(context.applicationContext) }
+    val systemSmsStore = remember { SystemSmsStore(context.applicationContext) }
+    val updateRepository = remember { ReleaseUpdateRepository() }
     val settings by preferences.settings.collectAsStateWithLifecycle(initialValue = RelaySettings())
     val messages by repository.recent.collectAsStateWithLifecycle(initialValue = emptyList())
     val scope = rememberCoroutineScope()
     var deviceName by rememberSaveable { mutableStateOf(settings.deviceName) }
     var endpoint by rememberSaveable { mutableStateOf(settings.endpoint) }
+    var selectedPage by rememberSaveable { mutableStateOf(0) }
+    var updateState by remember { mutableStateOf<UpdateCheckState>(UpdateCheckState.Idle) }
     var isDefaultSmsApp by remember { mutableStateOf(context.isDefaultSmsApp()) }
 
     LaunchedEffect(settings.deviceName, settings.endpoint) {
@@ -161,87 +168,111 @@ private fun SmsRelayApp() {
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 Header(settings.enabled)
-                RelayControlPanel(
-                    enabled = settings.enabled,
-                    endpointConfigured = endpoint.isNotBlank(),
-                    onEnabledChanged = { enabled ->
-                        if (!enabled) {
-                            saveSettings(false)
-                        } else if (ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.RECEIVE_SMS
-                            ) == PackageManager.PERMISSION_GRANTED
-                        ) {
-                            saveSettings(true)
-                        } else {
-                            smsPermission.launch(Manifest.permission.RECEIVE_SMS)
+                AppTabs(selectedPage = selectedPage, onSelect = { selectedPage = it })
+                if (selectedPage == 0) {
+                    RelayControlPanel(
+                        enabled = settings.enabled,
+                        endpointConfigured = endpoint.isNotBlank(),
+                        onEnabledChanged = { enabled ->
+                            if (!enabled) {
+                                saveSettings(false)
+                            } else if (ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECEIVE_SMS
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                saveSettings(true)
+                            } else {
+                                smsPermission.launch(Manifest.permission.RECEIVE_SMS)
+                            }
                         }
-                    }
-                )
-                SectionHeading("接收模式")
-                DefaultSmsPanel(
-                    isDefaultSmsApp = isDefaultSmsApp,
-                    onSetDefault = {
-                        context.defaultSmsRoleIntent()?.let(defaultSmsRole::launch)
-                    }
-                )
-                SectionHeading("推送配置")
-                OutlinedTextField(
-                    value = deviceName,
-                    onValueChange = { deviceName = it },
-                    label = { Text("设备名称") },
-                    supportingText = { Text("用于区分推送来源") },
-                    singleLine = true,
-                    shape = RelayShape,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = endpoint,
-                    onValueChange = { endpoint = it },
-                    label = { Text("推送地址") },
-                    placeholder = { Text("https://example.com/sms") },
-                    supportingText = { Text("仅保存到本机") },
-                    singleLine = true,
-                    shape = RelayShape,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Button(
-                    onClick = {
-                        scope.launch {
-                            preferences.save(settings.enabled, deviceName, endpoint)
-                            repository.sendTest()
+                    )
+                    SectionHeading("接收模式")
+                    DefaultSmsPanel(
+                        isDefaultSmsApp = isDefaultSmsApp,
+                        onSetDefault = {
+                            context.defaultSmsRoleIntent()?.let(defaultSmsRole::launch)
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RelayShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) { Text("发送测试推送") }
-                TextButton(
-                    onClick = {
-                        context.startActivity(
-                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                                .setData(Uri.parse("package:${context.packageName}"))
-                        )
-                    },
-                    modifier = Modifier.align(Alignment.End)
-                ) { Text("后台电池设置") }
-
-                SectionHeading(
-                    title = "最近发送记录",
-                    action = {
-                        TextButton(
-                            enabled = messages.isNotEmpty(),
-                            onClick = { scope.launch { repository.clearHistory() } }
-                        ) { Text("清除记录") }
+                    )
+                    SectionHeading("推送配置")
+                    OutlinedTextField(
+                        value = deviceName,
+                        onValueChange = { deviceName = it },
+                        label = { Text("设备名称") },
+                        supportingText = { Text("用于区分推送来源") },
+                        singleLine = true,
+                        shape = RelayShape,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = endpoint,
+                        onValueChange = { endpoint = it },
+                        label = { Text("推送地址") },
+                        placeholder = { Text("https://example.com/sms") },
+                        supportingText = { Text("仅保存到本机") },
+                        singleLine = true,
+                        shape = RelayShape,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                preferences.save(settings.enabled, deviceName, endpoint)
+                                repository.sendTest()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RelayShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) { Text("发送测试推送") }
+                    TextButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                    .setData(Uri.parse("package:${context.packageName}"))
+                            )
+                        },
+                        modifier = Modifier.align(Alignment.End)
+                    ) { Text("后台电池设置") }
+                    UpdatePanel(
+                        state = updateState,
+                        onCheck = {
+                            scope.launch {
+                                updateState = UpdateCheckState.Loading
+                                updateState = updateRepository.check(BuildConfig.VERSION_NAME)
+                            }
+                        },
+                        onDownload = { url ->
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }
+                    )
+                    SectionHeading(
+                        title = "最近发送记录",
+                        action = {
+                            TextButton(
+                                enabled = messages.isNotEmpty(),
+                                onClick = { scope.launch { repository.clearHistory() } }
+                            ) { Text("清除记录") }
+                        }
+                    )
+                    if (messages.isEmpty()) {
+                        EmptyHistory()
+                    } else {
+                        messages.forEach { message -> MessageRow(message) }
                     }
-                )
-                if (messages.isEmpty()) {
-                    EmptyHistory()
                 } else {
-                    messages.forEach { message -> MessageRow(message) }
+                    SystemSmsScreen(systemSmsStore)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AppTabs(selectedPage: Int, onSelect: (Int) -> Unit) {
+    TabRow(selectedTabIndex = selectedPage, containerColor = Color.Transparent) {
+        Tab(selected = selectedPage == 0, onClick = { onSelect(0) }, text = { Text("转发") })
+        Tab(selected = selectedPage == 1, onClick = { onSelect(1) }, text = { Text("短信") })
     }
 }
 
@@ -324,6 +355,204 @@ private fun DefaultSmsPanel(isDefaultSmsApp: Boolean, onSetDefault: () -> Unit) 
             if (!isDefaultSmsApp) {
                 TextButton(onClick = onSetDefault, modifier = Modifier.align(Alignment.End)) {
                     Text("设为默认短信应用")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SystemSmsScreen(store: SystemSmsStore) {
+    val scope = rememberCoroutineScope()
+    var folderName by rememberSaveable { mutableStateOf(SmsFolder.INBOX.name) }
+    val folder = SmsFolder.valueOf(folderName)
+    var messages by remember { mutableStateOf<List<SystemSmsMessage>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var selectedMessage by remember { mutableStateOf<SystemSmsMessage?>(null) }
+
+    suspend fun refresh() {
+        isLoading = true
+        messages = store.listMessages(folder)
+        isLoading = false
+    }
+
+    LaunchedEffect(folder) { refresh() }
+
+    selectedMessage?.let { message ->
+        SystemSmsDetail(
+            message = message,
+            onBack = { selectedMessage = null }
+        )
+        return
+    }
+
+    SectionHeading(
+        title = "系统短信",
+        action = {
+            TextButton(enabled = !isLoading, onClick = { scope.launch { refresh() } }) {
+                Text("刷新")
+            }
+        }
+    )
+    TabRow(selectedTabIndex = folder.ordinal, containerColor = Color.Transparent) {
+        Tab(
+            selected = folder == SmsFolder.INBOX,
+            onClick = { folderName = SmsFolder.INBOX.name },
+            text = { Text("收件箱") }
+        )
+        Tab(
+            selected = folder == SmsFolder.SENT,
+            onClick = { folderName = SmsFolder.SENT.name },
+            text = { Text("已发送") }
+        )
+    }
+    if (isLoading) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+            horizontalArrangement = Arrangement.Center
+        ) { CircularProgressIndicator() }
+    } else if (messages.isEmpty()) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RelayShape,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ) {
+            Text(
+                if (folder == SmsFolder.INBOX) "收件箱暂无短信" else "暂无已发送短信",
+                modifier = Modifier.padding(vertical = 22.dp, horizontal = 16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    } else {
+        messages.forEach { message ->
+            SystemSmsRow(
+                message = message,
+                onClick = {
+                    selectedMessage = message
+                    if (message.folder == SmsFolder.INBOX && !message.isRead) {
+                        scope.launch {
+                            store.markRead(message.id)
+                            messages = messages.map {
+                                if (it.id == message.id) it.copy(isRead = true) else it
+                            }
+                            selectedMessage = message.copy(isRead = true)
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SystemSmsRow(message: SystemSmsMessage, onClick: () -> Unit) {
+    OutlinedCard(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RelayShape,
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    message.address,
+                    fontWeight = if (message.isRead) FontWeight.Medium else FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (message.folder == SmsFolder.INBOX && !message.isRead) {
+                    StatusBadge("未读", RelayAmber)
+                }
+            }
+            Text(message.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(Date(message.date)),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SystemSmsDetail(message: SystemSmsMessage, onBack: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("短信详情", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        TextButton(onClick = onBack) { Text("返回列表") }
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RelayShape,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(message.address, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                DateFormat.getDateTimeInstance(DateFormat.FULL, DateFormat.SHORT).format(Date(message.date)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f))
+            Text(message.body.ifBlank { "（空短信）" }, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+
+@Composable
+private fun UpdatePanel(
+    state: UpdateCheckState,
+    onCheck: () -> Unit,
+    onDownload: (String) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RelayShape,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("版本与更新", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "当前版本 v${BuildConfig.VERSION_NAME}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                when (state) {
+                    UpdateCheckState.Loading -> CircularProgressIndicator(modifier = Modifier.padding(8.dp))
+                    else -> TextButton(onClick = onCheck) { Text("检查更新") }
+                }
+            }
+            when (state) {
+                UpdateCheckState.Idle, UpdateCheckState.Loading -> Unit
+                UpdateCheckState.Latest -> StatusBadge("已是最新版本", RelayTeal)
+                is UpdateCheckState.Failed -> Text(
+                    state.reason,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                is UpdateCheckState.Available -> {
+                    Text("发现新版本 v${state.release.version}", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "将从 GitHub Release 下载优化 APK。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = {
+                            onDownload(state.release.apkUrl ?: state.release.releaseUrl)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RelayShape
+                    ) { Text("下载 v${state.release.version}") }
                 }
             }
         }
